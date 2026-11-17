@@ -27,7 +27,7 @@ jobs:
           docker run -d --name convex --network host \
             -e CONVEX_CLOUD_ORIGIN=http://127.0.0.1:3210 \
             -e CONVEX_SITE_ORIGIN=http://127.0.0.1:3211 \
-            ghcr.io/get-convex/convex-backend:latest
+            ghcr.io/convex/convex-backend:latest
           for i in $(seq 1 60); do curl -sf http://127.0.0.1:3210/version && break; sleep 2; done
           echo "CONVEX_SELF_HOSTED_ADMIN_KEY=$(docker exec convex ./generate_admin_key.sh | tail -n 1)" >> "$GITHUB_ENV"
 
