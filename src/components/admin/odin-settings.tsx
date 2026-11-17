@@ -45,27 +45,96 @@ function Copyable({ value, label = "Copié" }: { value: string; label?: string }
   );
 }
 
-/** Connexion OdiN : clés d'API + webhook signé. Valable pour toutes les boutiques du compte. */
-export function OdinSection() {
-  const keys = useQuery(api.odin.listKeys, {});
-  const hook = useQuery(api.odin.getWebhook, {});
-  const createKey = useAction(api.odin.createKey);
-  const revokeKey = useMutation(api.odin.revokeKey);
+type Hook = { _id: Id<"webhooks">; url: string; secret: string; events: string[]; active: boolean; lastAt: number | null; lastStatus: string | null };
+
+/** Un webhook (OdiN, connexA…) : adresse, évènements, secret de signature, test. */
+function WebhookCard({ hook, onDone }: { hook: Hook | null; onDone?: () => void }) {
   const saveWebhook = useMutation(api.odin.saveWebhook);
   const testWebhook = useMutation(api.odin.testWebhook);
+  const removeWebhook = useMutation(api.odin.removeWebhook);
+  const [url, setUrl] = useState(hook?.url ?? "");
+  const [events, setEvents] = useState<string[]>(hook?.events ?? EVENTS.map((e) => e.id));
+  const [active, setActive] = useState(hook?.active ?? true);
+
+  const save = async (newSecret = false) => {
+    try {
+      await saveWebhook({ id: hook?._id, url, events, active, newSecret });
+      toast.success(newSecret ? "Nouveau secret : mets-le à jour dans l'outil" : "Webhook enregistré");
+      onDone?.();
+    } catch (e) {
+      toast.error(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-3xl bg-surface p-4 sm:p-5">
+      <input value={url} onChange={(e) => setUrl(e.target.value.trim())} placeholder="https://… (adresse donnée par OdiN ou connexA)" className={inputCls} inputMode="url" />
+      <div className="flex flex-wrap gap-2">
+        {EVENTS.map((e) => {
+          const on = events.includes(e.id);
+          return (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => setEvents((cur) => (on ? cur.filter((x) => x !== e.id) : [...cur, e.id]))}
+              className={cn("inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-medium", on ? "bg-foreground text-background" : "bg-card")}
+              aria-pressed={on}
+            >
+              {on && <Check className="size-4" />} {e.label}
+            </button>
+          );
+        })}
+      </div>
+      <label className="flex items-center gap-3 text-sm font-medium">
+        <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="size-5 accent-foreground" />
+        Envoi actif
+      </label>
+      {hook && (
+        <div className="space-y-2">
+          <span className="block text-sm font-semibold">Secret de signature (à coller dans l&apos;outil)</span>
+          <Copyable value={hook.secret} label="Secret copié" />
+          <p className="text-xs text-muted-foreground">Dernier envoi : {hook.lastAt ? `${fmtDateTime(hook.lastAt)} · ${hook.lastStatus ?? ""}` : "aucun"}</p>
+        </div>
+      )}
+      <div className="flex flex-wrap justify-end gap-2">
+        {hook && (
+          <>
+            <button
+              type="button"
+              onClick={() => removeWebhook({ id: hook._id }).then(() => toast.success("Webhook supprimé"), (e) => toast.error(errorMessage(e)))}
+              className={cn(btnCls, "bg-card text-[#b42318]")}
+            >
+              <Trash2 className="size-4" /> Supprimer
+            </button>
+            <button
+              type="button"
+              onClick={() => testWebhook({ id: hook._id }).then(() => toast.success("Test envoyé"), (e) => toast.error(errorMessage(e)))}
+              className={cn(btnCls, "bg-card")}
+            >
+              <Send className="size-4" /> Envoyer un test
+            </button>
+            <button type="button" onClick={() => void save(true)} className={cn(btnCls, "bg-card")}>
+              Nouveau secret
+            </button>
+          </>
+        )}
+        <button type="button" onClick={() => void save(false)} disabled={!url} className="inline-flex h-11 items-center gap-2 rounded-xl bg-foreground px-5 text-sm font-semibold text-background disabled:opacity-50">
+          Enregistrer
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Connexion OdiN et connexA : clé d'API + webhooks signés. Valable pour toutes les boutiques du compte. */
+export function OdinSection() {
+  const keys = useQuery(api.odin.listKeys, {});
+  const hooks = useQuery(api.odin.listWebhooks, {});
+  const createKey = useAction(api.odin.createKey);
+  const revokeKey = useMutation(api.odin.revokeKey);
   const [fresh, setFresh] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [url, setUrl] = useState("");
-  const [events, setEvents] = useState<string[]>(EVENTS.map((e) => e.id));
-  const [active, setActive] = useState(true);
-
-  useEffect(() => {
-    if (!hook) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- formulaire initialisé une fois les données reçues
-    setUrl(hook.url);
-    setEvents(hook.events);
-    setActive(hook.active);
-  }, [hook]);
+  const [adding, setAdding] = useState(false);
 
   const apiBase = `${(process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? "").replace(/\/$/, "")}/api/v1`;
 
@@ -81,23 +150,14 @@ export function OdinSection() {
     }
   };
 
-  const onSaveHook = async (newSecret = false) => {
-    try {
-      await saveWebhook({ url, events, active, newSecret });
-      toast.success(newSecret ? "Nouveau secret généré : mets-le à jour dans OdiN" : "Webhook enregistré");
-    } catch (e) {
-      toast.error(errorMessage(e));
-    }
-  };
-
   return (
     <Block
       id="odin"
-      title="OdiN"
+      title="OdiN et connexA"
       desc={
         <>
-          Relie Chairow à OdiN : OdiN crée et remplit les pages de vente, lit les ventes et reçoit chaque paiement réglé, échoué, abandonné ou remboursé.
-          La clé d&apos;API donne accès à <strong>toutes tes boutiques</strong> : ne la colle que dans OdiN.
+          <strong>OdiN</strong> crée et remplit les pages de vente et suit les ventes. <strong>connexA</strong> envoie chaque achat à tous tes pixels.
+          Chacun reçoit les ventes par un webhook signé. La clé d&apos;API donne accès à <strong>toutes tes boutiques</strong> : ne la colle que dans OdiN.
         </>
       }
     >
@@ -135,7 +195,7 @@ export function OdinSection() {
             </div>
             <button
               type="button"
-              onClick={() => revokeKey({ id: k._id as Id<"apiKeys"> }).then(() => toast.success("Clé révoquée"), (e) => toast.error(errorMessage(e)))}
+              onClick={() => revokeKey({ id: k._id }).then(() => toast.success("Clé révoquée"), (e) => toast.error(errorMessage(e)))}
               className="flex size-10 items-center justify-center rounded-lg text-[#b42318] hover:bg-card"
               aria-label="Révoquer la clé"
             >
@@ -146,52 +206,17 @@ export function OdinSection() {
       </div>
 
       <div className="space-y-3">
-        <span className="block font-semibold">Webhook (adresse donnée par OdiN)</span>
-        <input value={url} onChange={(e) => setUrl(e.target.value.trim())} placeholder="https://odin…/api/chairow" className={inputCls} inputMode="url" />
-        <div className="flex flex-wrap gap-2">
-          {EVENTS.map((e) => {
-            const on = events.includes(e.id);
-            return (
-              <button
-                key={e.id}
-                type="button"
-                onClick={() => setEvents((cur) => (on ? cur.filter((x) => x !== e.id) : [...cur, e.id]))}
-                className={cn("inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-sm font-medium", on ? "bg-foreground text-background" : "bg-surface")}
-                aria-pressed={on}
-              >
-                {on && <Check className="size-4" />} {e.label}
-              </button>
-            );
-          })}
-        </div>
-        <label className="flex items-center gap-3 text-sm font-medium">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="size-5 accent-foreground" />
-          Envoi actif
-        </label>
-        {hook && (
-          <div className="space-y-2">
-            <span className="block text-sm font-semibold">Secret de signature (à coller dans OdiN)</span>
-            <Copyable value={hook.secret} label="Secret copié" />
-            <p className="text-xs text-muted-foreground">
-              Dernier envoi : {hook.lastAt ? `${fmtDateTime(hook.lastAt)} · ${hook.lastStatus ?? ""}` : "aucun"}
-            </p>
-          </div>
-        )}
-        <div className="flex flex-wrap justify-end gap-2">
-          {hook && (
-            <>
-              <button type="button" onClick={() => testWebhook({}).then(() => toast.success("Test envoyé"), (e) => toast.error(errorMessage(e)))} className={btnCls}>
-                <Send className="size-4" /> Envoyer un test
-              </button>
-              <button type="button" onClick={() => onSaveHook(true)} className={btnCls}>
-                Nouveau secret
-              </button>
-            </>
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-semibold">Webhooks</span>
+          {!adding && (hooks?.length ?? 0) < 5 && (
+            <button type="button" onClick={() => setAdding(true)} className={btnCls}>
+              <Plus className="size-4" /> Ajouter
+            </button>
           )}
-          <button type="button" onClick={() => onSaveHook(false)} disabled={!url} className="inline-flex h-11 items-center gap-2 rounded-xl bg-foreground px-5 text-sm font-semibold text-background disabled:opacity-50">
-            Enregistrer
-          </button>
         </div>
+        {hooks?.length === 0 && !adding && <p className="text-sm text-muted-foreground">Aucun webhook. Ajoute celui d&apos;OdiN et celui de connexA.</p>}
+        {hooks?.map((h) => <WebhookCard key={h._id} hook={h} />)}
+        {adding && <WebhookCard hook={null} onDone={() => setAdding(false)} />}
       </div>
     </Block>
   );

@@ -49,7 +49,6 @@ export const createPending = internalMutation({
     withBump: v.optional(v.boolean()),
     currency: v.optional(v.string()),
     requestedMethod: v.optional(v.string()),
-    whatsappConsent: v.optional(v.boolean()),
     context: contextV,
   },
   handler: async (ctx, args) => {
@@ -136,7 +135,6 @@ export const createPending = internalMutation({
       customerName: name,
       customerEmail: email,
       customerPhone: args.phone,
-      whatsappConsent: args.phone ? args.whatsappConsent ?? false : undefined,
       price: basePrice,
       discount,
       net,

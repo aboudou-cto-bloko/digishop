@@ -97,20 +97,41 @@ export const authenticate = internalMutation({
 
 // ── Webhooks (dashboard) ─────────────────────────────────────────────────
 
-export const getWebhook = query({
+const MAX_WEBHOOKS = 5;
+
+function makeSecret() {
+  const b = new Uint8Array(24);
+  crypto.getRandomValues(b);
+  return `whsec_${b64url(b)}`;
+}
+
+async function ownWebhook(ctx: MutationCtx, ownerId: Id<"users">, id: Id<"webhooks">) {
+  const w = await ctx.db.get(id);
+  if (!w || w.ownerId !== ownerId) throw new ConvexError("Webhook introuvable.");
+  return w;
+}
+
+/** Tous les webhooks du compte (OdiN, connexA…). Le secret est visible par le propriétaire pour le coller dans l'outil. */
+export const listWebhooks = query({
   args: {},
   handler: async (ctx) => {
     const ownerId = await requireAdmin(ctx);
-    const w = await ctx.db.query("webhooks").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).first();
-    return w
-      ? { _id: w._id, url: w.url, secret: w.secret, events: w.events, active: w.active, lastAt: w.lastAt ?? null, lastStatus: w.lastStatus ?? null }
-      : null;
+    const rows = await ctx.db.query("webhooks").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).collect();
+    return rows.map((w) => ({
+      _id: w._id,
+      url: w.url,
+      secret: w.secret,
+      events: w.events,
+      active: w.active,
+      lastAt: w.lastAt ?? null,
+      lastStatus: w.lastStatus ?? null,
+    }));
   },
 });
 
 export const saveWebhook = mutation({
-  args: { url: v.string(), events: v.array(v.string()), active: v.boolean(), newSecret: v.optional(v.boolean()) },
-  handler: async (ctx, { url, events, active, newSecret }) => {
+  args: { id: v.optional(v.id("webhooks")), url: v.string(), events: v.array(v.string()), active: v.boolean(), newSecret: v.optional(v.boolean()) },
+  handler: async (ctx, { id, url, events, active, newSecret }) => {
     const ownerId = await requireAdmin(ctx);
     const clean = url.trim();
     let parsed: URL;
@@ -122,36 +143,32 @@ export const saveWebhook = mutation({
     if (parsed.protocol !== "https:") throw new ConvexError("Le webhook doit commencer par https://");
     const ev = events.filter((e): e is WebhookEvent => (WEBHOOK_EVENTS as readonly string[]).includes(e));
     if (!ev.length) throw new ConvexError("Choisis au moins un évènement.");
-    const existing = await ctx.db.query("webhooks").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).first();
-    const makeSecret = () => {
-      const b = new Uint8Array(24);
-      crypto.getRandomValues(b);
-      return `whsec_${b64url(b)}`;
-    };
-    if (existing) {
-      await ctx.db.patch(existing._id, { url: clean, events: ev, active, failures: 0, ...(newSecret ? { secret: makeSecret() } : {}) });
-    } else {
-      await ctx.db.insert("webhooks", { ownerId, url: clean, events: ev, active, secret: makeSecret(), createdAt: Date.now() });
+    if (id) {
+      const w = await ownWebhook(ctx, ownerId, id);
+      await ctx.db.patch(w._id, { url: clean, events: ev, active, failures: 0, ...(newSecret ? { secret: makeSecret() } : {}) });
+      return w._id;
     }
+    const count = (await ctx.db.query("webhooks").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).collect()).length;
+    if (count >= MAX_WEBHOOKS) throw new ConvexError(`${MAX_WEBHOOKS} webhooks maximum.`);
+    return await ctx.db.insert("webhooks", { ownerId, url: clean, events: ev, active, secret: makeSecret(), createdAt: Date.now() });
   },
 });
 
 export const removeWebhook = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { id: v.id("webhooks") },
+  handler: async (ctx, { id }) => {
     const ownerId = await requireAdmin(ctx);
-    const w = await ctx.db.query("webhooks").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).first();
-    if (w) await ctx.db.delete(w._id);
+    await ownWebhook(ctx, ownerId, id);
+    await ctx.db.delete(id);
   },
 });
 
-/** Bouton « Envoyer un test » : un faux évènement, pour vérifier que OdiN reçoit et valide la signature. */
+/** Bouton « Envoyer un test » : un faux évènement, pour vérifier que l'outil reçoit et valide la signature. */
 export const testWebhook = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { id: v.id("webhooks") },
+  handler: async (ctx, { id }) => {
     const ownerId = await requireAdmin(ctx);
-    const w = await ctx.db.query("webhooks").withIndex("by_owner", (q) => q.eq("ownerId", ownerId)).first();
-    if (!w) throw new ConvexError("Enregistre d'abord l'adresse du webhook.");
+    const w = await ownWebhook(ctx, ownerId, id);
     const body = JSON.stringify({ id: `test_${Date.now()}`, event: "test", created: Date.now(), data: { message: "Webhook Chairow OK" } });
     await ctx.scheduler.runAfter(0, internal.odin.deliver, { webhookId: w._id, event: "test", body, attempt: 1 });
   },
@@ -180,9 +197,15 @@ export function salePayload(sale: Doc<"sales">, store: Doc<"stores"> | null) {
       name: sale.customerName,
       email: sale.customerEmail,
       phone: sale.customerPhone ?? null,
-      whatsapp_consent: sale.whatsappConsent ?? false,
     },
     country: sale.context.country ?? null,
+    // Pour l'API Conversions (connexA) : mêmes identifiants que le navigateur de l'acheteur
+    fbp: sale.context.fbp ?? null,
+    fbc: sale.context.fbc ?? null,
+    ip: sale.context.ip ?? null,
+    user_agent: sale.context.userAgent ?? null,
+    // Même event_id que le pixel et l'API Conversions de Chairow : Meta dédoublonne
+    purchase_event_id: `purchase_${sale._id}`,
     utm_source: sale.context.utmSource ?? null,
     utm_campaign: sale.context.utmCampaign ?? null,
     created_at: sale._creationTime,

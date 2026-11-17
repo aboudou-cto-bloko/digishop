@@ -34,7 +34,6 @@ Paramètres → OdiN : adresse `https://…`, évènements choisis, secret `whse
 - En-têtes : `X-Chairow-Event`, `X-Chairow-Timestamp` (secondes), `X-Chairow-Signature: sha256=<hex>`
   = HMAC-SHA256(secret, `<timestamp>.<corps brut>`). Refuser si l'écart d'heure dépasse 5 minutes.
 - Réessais : jusqu'à 6 envois (0 s, 30 s, 2 min, 10 min, 1 h, 6 h) tant que la réponse n'est pas 2xx.
-- La vente contient `customer.whatsapp_consent` : n'écrire sur WhatsApp qu'aux clients qui l'ont accepté.
 
 ## Pixels
 Paramètres → Pixels : pixel principal + jusqu'à 10 pixels supplémentaires (un par compte publicitaire).

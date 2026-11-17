@@ -117,8 +117,6 @@ export default defineSchema({
     customerName: v.string(),
     customerEmail: v.string(),
     customerPhone: v.optional(v.string()),
-    // L'acheteur accepte d'être contacté sur WhatsApp (case cochée au paiement)
-    whatsappConsent: v.optional(v.boolean()),
     // Remboursement : l'argent est rendu par le vendeur (Mobile Money), l'accès est coupé
     refund: v.optional(v.object({ at: v.number(), amount: v.number(), reason: v.optional(v.string()), by: v.optional(v.string()) })),
     price: v.number(),
