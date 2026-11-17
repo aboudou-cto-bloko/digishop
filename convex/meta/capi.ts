@@ -78,7 +78,12 @@ async function send(
 ) {
   // Pixel et jeton propres à la boutique de la vente
   const settings = await ctx.runQuery(internal.settings.internalSettings, { storeId: sale.storeId });
-  if (!settings?.fbPixelId || !settings.fbAccessToken) return; // CAPI non configurée
+  // Pixel principal + pixels supplémentaires qui ont un jeton CAPI
+  const targets = [
+    ...(settings?.fbPixelId && settings.fbAccessToken ? [{ pixelId: settings.fbPixelId, token: settings.fbAccessToken }] : []),
+    ...(settings?.extraPixels ?? []).flatMap((x) => (x.accessToken ? [{ pixelId: x.pixelId, token: x.accessToken }] : [])),
+  ];
+  if (!targets.length) return; // CAPI non configurée
   if (!(await ctx.runMutation(internal.meta.capi.claim, { eventId, eventName, saleId: sale._id, storeId: sale.storeId }))) return;
 
   const product = await ctx.runQuery(internal.products.internalGet, { id: sale.productId });
@@ -106,19 +111,30 @@ async function send(
       },
     ],
   };
-  if (settings.fbTestEventCode) body.test_event_code = settings.fbTestEventCode;
+  if (settings?.fbTestEventCode) body.test_event_code = settings.fbTestEventCode;
 
-  try {
-    const res = await fetch(
-      `${GRAPH_URL}/${settings.fbPixelId}/events?access_token=${encodeURIComponent(settings.fbAccessToken)}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
-    );
-    const text = await res.text();
-    await ctx.runMutation(internal.meta.capi.record, { eventId, status: res.ok ? "sent" : "failed", response: text });
-    if (!res.ok) console.error("[meta capi]", eventName, res.status, text.slice(0, 300));
-  } catch (err) {
-    await ctx.runMutation(internal.meta.capi.record, { eventId, status: "failed", response: String(err) });
-  }
+  // Même event_id pour chaque pixel : Meta dédoublonne avec l'évènement du navigateur, pixel par pixel
+  const results = await Promise.all(
+    targets.map(async (t) => {
+      try {
+        const res = await fetch(`${GRAPH_URL}/${t.pixelId}/events?access_token=${encodeURIComponent(t.token)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const text = await res.text();
+        if (!res.ok) console.error("[meta capi]", eventName, t.pixelId, res.status, text.slice(0, 300));
+        return { ok: res.ok, text: `${t.pixelId}: ${text.slice(0, 120)}` };
+      } catch (err) {
+        return { ok: false, text: `${t.pixelId}: ${String(err)}` };
+      }
+    }),
+  );
+  await ctx.runMutation(internal.meta.capi.record, {
+    eventId,
+    status: results.some((r) => r.ok) ? "sent" : "failed",
+    response: results.map((r) => r.text).join(" | "),
+  });
 }
 
 export const trackPurchase = internalAction({

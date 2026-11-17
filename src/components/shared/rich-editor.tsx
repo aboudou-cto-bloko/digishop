@@ -95,7 +95,9 @@ export function RichEditor({
       setUploading((n) => n + 1);
       try {
         const { file, width, height } = await prepareImage(original);
-        if (file.size > 5 * 1024 * 1024) throw new Error("Image trop lourde même après compression (5 Mo max).");
+        if (file.type === "image/gif" ? file.size > 15 * 1024 * 1024 : file.size > 5 * 1024 * 1024) {
+          throw new Error(file.type === "image/gif" ? "GIF trop lourd (15 Mo max)." : "Image trop lourde même après compression (5 Mo max).");
+        }
         const storageId = await uploadToConvex(await genUrl(), file);
         const src = await imageUrl({ storageId: storageId as never });
         const alt = original.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim().slice(0, 120);
@@ -196,7 +198,7 @@ export function RichEditor({
         )}
       </div>
       <p className="mt-1.5 text-xs text-muted-foreground">
-        Images : JPG, PNG, WebP ou GIF · largeur conseillée 1200 px · compressées automatiquement. Vidéos : colle un lien YouTube, Vimeo ou TikTok dans le texte.
+        Images : JPG, PNG, WebP ou GIF animé (15 Mo max) · largeur conseillée 1200 px · photos compressées automatiquement. Vidéos : colle un lien YouTube, Vimeo ou TikTok dans le texte.
       </p>
     </div>
   );

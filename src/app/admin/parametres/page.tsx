@@ -3,7 +3,7 @@
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Bell, Check, ChevronRight, FileText, Globe2, RefreshCw, Copy, CreditCard, Eye, EyeOff, Headset, Loader2, Mail, Search, Store, Target, X } from "lucide-react";
+import { Bell, Bot, Check, ChevronRight, FileText, Globe2, RefreshCw, Copy, CreditCard, Eye, EyeOff, Headset, Loader2, Mail, Search, Store, Target, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -12,6 +12,7 @@ import { errorMessage } from "@/lib/format";
 import { uploadToConvex } from "@/lib/upload";
 import { CountryPicker } from "@/components/admin/country-picker";
 import { PushSettings } from "@/components/admin/push-settings";
+import { ExtraPixels, OdinSection } from "@/components/admin/odin-settings";
 import { currencyName } from "@/lib/geo";
 import { cn } from "@/lib/utils";
 import { useStoreQuery, useStoreMutation, useStoreAction } from "@/hooks/use-current-store";
@@ -29,6 +30,7 @@ const SECTIONS = [
   { id: "seo", label: "SEO & Référencement", desc: "Titre et description pour Google et les partages.", icon: Search, tint: "bg-[#e3ecfb] text-[#1d4ed8]" },
   { id: "emails", label: "Emails", desc: "Envoi des accès clients (SMTP, avec secours).", icon: Mail, tint: "bg-[#fdf7c3] text-[#a16207]" },
   { id: "support", label: "Support client", desc: "WhatsApp et email de contact pour tes clients.", icon: Headset, tint: "bg-[#fdf7c3] text-[#a16207]" },
+  { id: "odin", label: "OdiN", desc: "Clé d'API et webhook pour l'outil de vente automatique.", icon: Bot, tint: "bg-[#f3ead7] text-[#8a6a2f]" },
   { id: "notifications", label: "Notifications et application", desc: "Alertes de vente sur ton téléphone, installation du dashboard.", icon: Bell, tint: "bg-[#fde8e7] text-[#b42318]" },
 ] as const;
 
@@ -81,6 +83,7 @@ function SettingsForm({ s }: { s: Settings }) {
         <SeoSection s={s} />
         <EmailSection s={s} />
         <SupportSection s={s} />
+        <OdinSection />
         <Section id="notifications" title="Notifications et application" desc="Installe le dashboard sur ton téléphone et reçois une alerte à chaque vente, même application fermée. Valable pour toutes tes boutiques.">
           <PushSettings />
         </Section>
@@ -396,6 +399,7 @@ function PixelsSection({ s }: { s: Settings }) {
       <Field label="ID Pixel TikTok (optionnel)">
         <input value={tiktok} onChange={(e) => setTiktok(e.target.value.trim())} placeholder="C1A2B3C4D5E6F7G8H9" className={inputCls} />
       </Field>
+      <ExtraPixels />
     </Section>
   );
 }

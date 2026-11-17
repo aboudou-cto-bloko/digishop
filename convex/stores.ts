@@ -66,7 +66,8 @@ export const list = query({
           const paid = await ctx.db
             .query("sales")
             .withIndex("by_store_status", (q) => q.eq("storeId", s._id).eq("status", "paid"))
-            .collect();
+            .collect()
+      .then((rows) => rows.filter((x) => !x.refund));
           const recent = paid.filter((x) => (x.paidAt ?? x._creationTime) >= since);
           const settings = await ctx.db
             .query("settings")

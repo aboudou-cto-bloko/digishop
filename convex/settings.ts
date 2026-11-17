@@ -67,6 +67,8 @@ export const publicSettings = query({
       whatsapp: s?.whatsapp,
       supportEmail: s?.supportEmail,
       fbPixelId: s?.fbPixelId,
+      // Tous les pixels Facebook à initialiser dans le navigateur (principal + supplémentaires)
+      fbPixelIds: [...new Set([s?.fbPixelId, ...(s?.extraPixels ?? []).map((x) => x.pixelId)].filter((x): x is string => Boolean(x)))],
       tiktokPixelId: s?.tiktokPixelId,
       seoTitle: s?.seoTitle,
       seoDescription: s?.seoDescription,
@@ -173,6 +175,41 @@ export const adminSettings = query({
       fbAccessTokenHint: s?.fbAccessToken ? s.fbAccessToken.slice(-4) : undefined,
       theme: await publicTheme(ctx, s?.theme),
     };
+  },
+});
+
+/** Pixels supplémentaires (un par compte publicitaire). Le jeton CAPI n'est jamais renvoyé au navigateur. */
+export const extraPixels = query({
+  args: { storeId: v.id("stores") },
+  handler: async (ctx, { storeId }) => {
+    await requireStore(ctx, storeId);
+    const s = await loadSettings(ctx, storeId);
+    return (s?.extraPixels ?? []).map((x) => ({ pixelId: x.pixelId, label: x.label ?? "", hasToken: Boolean(x.accessToken) }));
+  },
+});
+
+export const saveExtraPixels = mutation({
+  args: {
+    storeId: v.id("stores"),
+    // accessToken : "" = effacer, absent = garder l'ancien
+    pixels: v.array(v.object({ pixelId: v.string(), label: v.optional(v.string()), accessToken: v.optional(v.string()) })),
+  },
+  handler: async (ctx, { storeId, pixels }) => {
+    await requireStore(ctx, storeId);
+    if (pixels.length > 10) throw new ConvexError("10 pixels supplémentaires maximum.");
+    const s = await ensureSettings(ctx, storeId);
+    const old = new Map((s.extraPixels ?? []).map((x) => [x.pixelId, x]));
+    const seen = new Set<string>([s.fbPixelId ?? ""]);
+    const next: { pixelId: string; label?: string; accessToken?: string }[] = [];
+    for (const p of pixels) {
+      const id = p.pixelId.trim();
+      if (!/^\d{10,20}$/.test(id)) throw new ConvexError(`Pixel « ${id} » : l'ID ne contient que des chiffres.`);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const token = p.accessToken === undefined ? old.get(id)?.accessToken : p.accessToken.trim() || undefined;
+      next.push({ pixelId: id, ...(p.label?.trim() ? { label: p.label.trim().slice(0, 40) } : {}), ...(token ? { accessToken: token } : {}) });
+    }
+    await ctx.db.patch(s._id, { extraPixels: next });
   },
 });
 

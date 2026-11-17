@@ -76,6 +76,7 @@ export const start = action({
     context: contextV,
     initiateEventId: v.optional(v.string()),
     method: v.optional(v.string()), // moyen choisi dans notre formulaire (code court, ex. mtn_bj)
+    whatsappConsent: v.optional(v.boolean()), // case « J'accepte d'être contacté sur WhatsApp »
   },
   handler: async (ctx, args): Promise<StartResult> => {
     const parsed = buyerSchema.safeParse({
@@ -102,6 +103,7 @@ export const start = action({
       withBump: args.withBump,
       currency,
       requestedMethod: method,
+      whatsappConsent: args.whatsappConsent,
       context: args.context,
     });
 

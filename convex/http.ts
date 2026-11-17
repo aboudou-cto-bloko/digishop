@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { ConvexError } from "convex/values";
 import { auth } from "./auth";
 import { monerooWebhook, cameroonPayinWebhook } from "./payments/webhooks";
 import { z } from "zod";
@@ -8,6 +9,7 @@ import { UAParser } from "ua-parser-js";
 import { isbot } from "isbot";
 import { TRACK_EVENTS } from "./lib/validators";
 import { sameSig, sign } from "./lib/sign";
+import { sha256Hex } from "./odin";
 
 const http = httpRouter();
 auth.addHttpRoutes(http);
@@ -213,5 +215,99 @@ for (const route of ["claim", "result", "heartbeat", "inbound"] as const) {
     }),
   });
 }
+
+// ── API OdiN : /api/v1/… avec « Authorization: Bearer chw_… » (clé créée dans Paramètres → OdiN) ──
+// GET  /api/v1/me                      → boutiques du propriétaire de la clé
+// POST /api/v1/upload-url              → adresse d'envoi d'un fichier (POST du fichier brut → { storageId })
+// POST /api/v1/products                → { store_id, title, ...champs } crée une fiche (brouillon)
+// GET  /api/v1/products/<id>           → fiche, lien public, nombre de ventes
+// POST /api/v1/products/<id>           → { ...champs } met à jour (titre, description HTML, prix, galerie, fichiers, FAQ…)
+// POST /api/v1/products/<id>/publish   → publie ; /unpublish → repasse en brouillon
+// GET  /api/v1/sales?store_id=&since=&status=&limit=
+// POST /api/v1/sales/<id>/refund       → { amount?, reason? }
+const apiCors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
+const apiJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...apiCors } });
+
+/** Champs de fiche acceptés par l'API (noms en snake_case côté OdiN → noms internes). */
+function productFields(body: Record<string, unknown>) {
+  const map: Record<string, string> = {
+    title: "title", tagline: "tagline", description: "description", price: "price", compare_at_price: "compareAtPrice",
+    cover_storage_id: "coverId", gallery: "gallery", files: "files", testimonials: "testimonials", faq: "faq", guarantee: "guarantee",
+    promo: "promo", show_sales_count: "showSalesCount", countries: "countries", seo_title: "seoTitle", seo_description: "seoDescription",
+    preview_pages: "previewPages", stock_limit: "stockLimit", cta: "cta", slug: "slug",
+  };
+  const out: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(body)) if (map[k] && val !== undefined) out[map[k]] = val;
+  return out;
+}
+
+const apiHandler = httpAction(async (ctx, request) => {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiCors });
+  const token = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "";
+  if (!/^chw_[A-Za-z0-9_-]{20,}$/.test(token)) return apiJson({ error: "Clé d'API manquante ou invalide." }, 401);
+  
+  const ownerId = await ctx.runMutation(internal.odin.authenticate, { hash: await sha256Hex(token) });
+  if (!ownerId) return apiJson({ error: "Clé d'API inconnue ou révoquée." }, 401);
+
+  const url = new URL(request.url);
+  const parts = url.pathname.replace(/^\/api\/v1\/?/, "").split("/").filter(Boolean);
+  let body: Record<string, unknown> = {};
+  if (request.method === "POST") {
+    try {
+      const raw: unknown = await request.json();
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) body = raw as Record<string, unknown>;
+    } catch {
+      /* corps vide accepté */
+    }
+  }
+  try {
+    const [a, id, sub] = parts;
+    if (request.method === "GET" && a === "me") return apiJson(await ctx.runMutation(internal.odin.apiMe, { ownerId }));
+    if (request.method === "POST" && a === "upload-url") return apiJson(await ctx.runMutation(internal.odin.apiUploadUrl, { ownerId }));
+    if (a === "products") {
+      if (request.method === "POST" && !id) {
+        const created = await ctx.runMutation(internal.odin.apiCreateProduct, { ownerId, storeId: String(body.store_id ?? ""), title: String(body.title ?? "") });
+        const fields = productFields(body);
+        delete fields.title;
+        if (Object.keys(fields).length) await ctx.runMutation(internal.odinApiUpdate.run, { ownerId, productId: created.id, fields: fields as never });
+        return apiJson(await ctx.runMutation(internal.odin.apiGetProduct, { ownerId, productId: created.id }), 201);
+      }
+      if (id && request.method === "GET" && !sub) return apiJson(await ctx.runMutation(internal.odin.apiGetProduct, { ownerId, productId: id }));
+      if (id && request.method === "POST" && !sub) {
+        await ctx.runMutation(internal.odinApiUpdate.run, { ownerId, productId: id, fields: productFields(body) as never });
+        return apiJson(await ctx.runMutation(internal.odin.apiGetProduct, { ownerId, productId: id }));
+      }
+      if (id && request.method === "POST" && (sub === "publish" || sub === "unpublish")) {
+        return apiJson(await ctx.runMutation(internal.odin.apiSetStatus, { ownerId, productId: id, status: sub === "publish" ? "published" : "draft" }));
+      }
+    }
+    if (a === "sales") {
+      if (request.method === "GET" && !id) {
+        const since = Number(url.searchParams.get("since") ?? "");
+        const limit = Number(url.searchParams.get("limit") ?? "");
+        return apiJson({
+          data: await ctx.runMutation(internal.odin.apiListSales, {
+            ownerId,
+            storeId: url.searchParams.get("store_id") ?? "",
+            since: Number.isFinite(since) && since > 0 ? since : undefined,
+            status: url.searchParams.get("status") ?? undefined,
+            limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
+          }),
+        });
+      }
+      if (id && sub === "refund" && request.method === "POST") {
+        const amount = typeof body.amount === "number" ? body.amount : undefined;
+        const reason = typeof body.reason === "string" ? body.reason : undefined;
+        return apiJson(await ctx.runMutation(internal.odin.apiRefund, { ownerId, saleId: id, amount, reason }));
+      }
+    }
+    return apiJson({ error: "Route inconnue." }, 404);
+  } catch (err) {
+    const msg = err instanceof ConvexError ? String(err.data) : "Requête refusée (champs invalides ?).";
+    if (!(err instanceof ConvexError)) console.error("[api odin]", err);
+    return apiJson({ error: msg }, 400);
+  }
+});
+for (const method of ["GET", "POST", "OPTIONS"] as const) http.route({ pathPrefix: "/api/v1/", method, handler: apiHandler });
 
 export default http;

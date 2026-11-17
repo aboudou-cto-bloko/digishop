@@ -106,6 +106,7 @@ export function CheckoutForm({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [waConsent, setWaConsent] = useState(false);
   const [icEventId] = useState(() => newEventId("ic"));
   const [method, setMethod] = useState<string | undefined>(undefined);
   const methods = useQuery(api.routing.methodsForCountry, v.country ? { country: v.country } : "skip");
@@ -293,6 +294,7 @@ export function CheckoutForm({
       currency: v.currency !== "XOF" ? v.currency : undefined,
       initiateEventId: eventId,
       method,
+      whatsappConsent: waConsent,
       context: {
         lang: navigator.language?.slice(0, 2),
         device: deviceLabel(navigator.userAgent),
@@ -458,6 +460,15 @@ export function CheckoutForm({
             aria-invalid={Boolean(errors.phone)}
           />
         </Field>
+        <label className="flex cursor-pointer items-start gap-3 text-[0.92rem] leading-snug text-foreground/80">
+          <input
+            type="checkbox"
+            checked={waConsent}
+            onChange={(e) => setWaConsent(e.target.checked)}
+            className="mt-0.5 size-5 shrink-0 accent-foreground"
+          />
+          <span>J&apos;accepte d&apos;être contacté sur WhatsApp au sujet de ma commande (aide, accès au produit).</span>
+        </label>
         {product.bump && (
           <label
             className={cn(

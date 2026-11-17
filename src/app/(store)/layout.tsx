@@ -38,7 +38,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
   const ipCountry = h.get("x-vercel-ip-country") ?? h.get("cf-ipcountry") ?? undefined;
   return (
     <StoreShell storeId={store._id} base={store.base} settings={s} theme={s.theme} pages={pages} initialCountry={isCountryCode(ipCountry) ? ipCountry.toUpperCase() : undefined}>
-      <Pixels fbPixelId={s.fbPixelId} tiktokPixelId={s.tiktokPixelId} />
+      <Pixels fbPixelIds={s.fbPixelIds} tiktokPixelId={s.tiktokPixelId} />
       <ViewTracker />
       {store.status === "paused" ? (
         <main className="mx-auto max-w-lg px-4 pt-16 text-center">

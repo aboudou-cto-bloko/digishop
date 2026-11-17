@@ -71,6 +71,7 @@ export function SaleDetail({ id }: { id: Id<"sales"> }) {
   const recheck = useStoreMutation(api.sales.recheck);
   const sendRecovery = useStoreMutation(api.recovery.sendNow);
   const sendWhatsapp = useStoreMutation(api.whatsapp.enqueue);
+  const refund = useStoreMutation(api.odin.refund);
   const waStatus = useStoreQuery(api.whatsapp.status, {});
 
   if (sale === undefined) {
@@ -114,8 +115,39 @@ export function SaleDetail({ id }: { id: Id<"sales"> }) {
         </div>
       </div>
 
+      {sale.refund && (
+        <div className="rounded-2xl bg-[var(--danger-bg)] p-4 text-sm text-[var(--danger-fg)]">
+          <strong>Remboursée</strong> le {fmtDateTime(sale.refund.at)} : {sale.refund.amount.toLocaleString("fr-FR")} F CFA
+          {sale.refund.reason ? ` · ${sale.refund.reason}` : ""}. Retirée des revenus, accès coupé.
+        </div>
+      )}
+      {sale.customerPhone && (
+        <p className="text-sm text-muted-foreground">
+          WhatsApp : {sale.whatsappConsent ? "le client accepte d'être contacté" : "pas d'accord donné à la commande"}
+        </p>
+      )}
+
       {sale.status === "paid" && (
         <div className="flex flex-wrap gap-2">
+          {!sale.refund && (
+            <button
+              type="button"
+              onClick={() => {
+                const reason = window.prompt(
+                  `Rembourser ${sale.customerName} (${sale.net.toLocaleString("fr-FR")} F CFA) ?
+
+Rends d'abord l'argent par Mobile Money ou depuis Moneroo : Chairow note le remboursement, coupe l'accès et retire la vente des revenus.
+
+Raison (facultatif) :`,
+                  "",
+                );
+                if (reason !== null) void run(() => refund({ saleId: id, reason: reason || undefined }), "Remboursement noté");
+              }}
+              className="inline-flex h-12 items-center gap-2 rounded-xl bg-surface px-5 font-semibold hover:bg-[#eceeec]"
+            >
+              Rembourser
+            </button>
+          )}
           {sale.accessRevoked ? (
             <button
               type="button"
