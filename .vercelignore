@@ -1,0 +1,8 @@
+# Jamais envoyé à Vercel : secrets locaux, base Convex locale, artefacts
+.env*
+!.env.example
+.convex
+.next
+node_modules
+*.tsbuildinfo
+*.pem
