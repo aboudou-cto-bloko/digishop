@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { ConvexError } from "convex/values";
 import { auth } from "./auth";
 import { monerooWebhook, cameroonPayinWebhook } from "./payments/webhooks";
@@ -219,6 +220,7 @@ for (const route of ["claim", "result", "heartbeat", "inbound"] as const) {
 // ── API OdiN : /api/v1/… avec « Authorization: Bearer chw_… » (clé créée dans Paramètres → OdiN) ──
 // GET  /api/v1/me                      → boutiques du propriétaire de la clé
 // POST /api/v1/upload-url              → adresse d'envoi d'un fichier (POST du fichier brut → { storageId })
+// GET  /api/v1/files/<storageId>       → { url } lien public d'un fichier envoyé (images à placer dans la description)
 // POST /api/v1/products                → { store_id, title, ...champs } crée une fiche (brouillon)
 // GET  /api/v1/products/<id>           → fiche, lien public, nombre de ventes
 // POST /api/v1/products/<id>           → { ...champs } met à jour (titre, description HTML, prix, galerie, fichiers, FAQ…)
@@ -264,6 +266,16 @@ const apiHandler = httpAction(async (ctx, request) => {
     const [a, id, sub] = parts;
     if (request.method === "GET" && a === "me") return apiJson(await ctx.runMutation(internal.odin.apiMe, { ownerId }));
     if (request.method === "POST" && a === "upload-url") return apiJson(await ctx.runMutation(internal.odin.apiUploadUrl, { ownerId }));
+    if (request.method === "GET" && a === "files" && id) {
+      let fileUrl: string | null = null;
+      try {
+        fileUrl = await ctx.storage.getUrl(id as Id<"_storage">);
+      } catch {
+        fileUrl = null;
+      }
+      if (!fileUrl) return apiJson({ error: "Fichier introuvable." }, 404);
+      return apiJson({ url: fileUrl });
+    }
     if (a === "products") {
       if (request.method === "POST" && !id) {
         const created = await ctx.runMutation(internal.odin.apiCreateProduct, { ownerId, storeId: String(body.store_id ?? ""), title: String(body.title ?? "") });

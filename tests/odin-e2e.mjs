@@ -103,6 +103,8 @@ const GIF = Buffer.from("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", "bas
 const gifId = await upload(GIF, "image/gif");
 const fileId = await upload(Buffer.from("Contenu de l'ebook de test"), "text/plain");
 ok(Boolean(gifId && fileId), "envoi d'un GIF et d'un fichier");
+const link = await api("GET", `files/${gifId}`);
+ok(link.status === 200 && String(link.json?.url).includes("/api/storage/"), "lien public d'un fichier envoyé", link);
 
 const upd = await api("POST", `products/${pid}`, {
   description: "<h2>Pourquoi ce guide</h2><p>Pour bien commencer la journée.</p>",
