@@ -402,8 +402,27 @@ export const apiSetStatus = internalMutation({
       if (p.files.length === 0) throw new ConvexError("Pour publier, ajoute au moins un fichier à livrer.");
     }
     await ctx.db.patch(p._id, { status, updatedAt: Date.now() });
+    // Premier produit publié : la boutique en pause s'ouvre (elle ne pouvait pas avant).
+    const storeActivated = status === "published" && store.status === "paused";
+    if (storeActivated) await ctx.db.patch(store._id, { status: "active" });
     const fresh = await ctx.db.get(p._id);
-    return fresh ? productOut(fresh, store) : null;
+    return fresh ? { ...productOut(fresh, store), store_status: storeActivated ? "active" : store.status, store_activated: storeActivated } : null;
+  },
+});
+
+export const apiSetStoreStatus = internalMutation({
+  args: { ownerId: v.id("users"), storeId: v.string(), status: v.union(v.literal("active"), v.literal("paused")) },
+  handler: async (ctx, { ownerId, storeId, status }) => {
+    const store = await ownedStore(ctx, ownerId, storeId);
+    if (status === "active") {
+      const published = await ctx.db
+        .query("products")
+        .withIndex("by_store_status", (q) => q.eq("storeId", store._id).eq("status", "published"))
+        .first();
+      if (!published) throw new ConvexError("Publie au moins un produit avant d'ouvrir la boutique.");
+    }
+    await ctx.db.patch(store._id, { status });
+    return { id: store._id, status, url: storeUrl(store) };
   },
 });
 

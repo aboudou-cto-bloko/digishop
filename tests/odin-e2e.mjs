@@ -121,6 +121,14 @@ ok((await api("POST", `products/${pid}`, { price: 50 })).status === 400, "prix s
 
 const pub = await api("POST", `products/${pid}/publish`);
 ok(pub.status === 200 && pub.json.status === "published" && pub.json.url.includes("/p/"), "publication + lien public", pub);
+const storeId = pub.json.store_id;
+const paused = await api("POST", `stores/${storeId}/pause`);
+ok(paused.status === 200 && paused.json.status === "paused", "boutique mise en pause par l'API", paused);
+await api("POST", `products/${pid}/unpublish`);
+const repub = await api("POST", `products/${pid}/publish`);
+ok(repub.status === 200 && repub.json.store_activated === true && repub.json.store_status === "active", "publier un produit ouvre la boutique en pause", repub);
+const act = await api("POST", `stores/${storeId}/activate`);
+ok(act.status === 200 && act.json.status === "active", "boutique ouverte par l'API", act);
 
 // ── Vente : réglée → webhook signé ──
 const pending = run("sales:createPending", {

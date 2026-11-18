@@ -225,6 +225,8 @@ for (const route of ["claim", "result", "heartbeat", "inbound"] as const) {
 // GET  /api/v1/products/<id>           → fiche, lien public, nombre de ventes
 // POST /api/v1/products/<id>           → { ...champs } met à jour (titre, description HTML, prix, galerie, fichiers, FAQ…)
 // POST /api/v1/products/<id>/publish   → publie ; /unpublish → repasse en brouillon
+//      (publier le premier produit ouvre aussi la boutique si elle est en pause)
+// POST /api/v1/stores/<id>/activate    → ouvre la boutique ; /pause → la met en pause
 // GET  /api/v1/sales?store_id=&since=&status=&limit=
 // POST /api/v1/sales/<id>/refund       → { amount?, reason? }
 const apiCors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
@@ -292,6 +294,9 @@ const apiHandler = httpAction(async (ctx, request) => {
       if (id && request.method === "POST" && (sub === "publish" || sub === "unpublish")) {
         return apiJson(await ctx.runMutation(internal.odin.apiSetStatus, { ownerId, productId: id, status: sub === "publish" ? "published" : "draft" }));
       }
+    }
+    if (a === "stores" && id && request.method === "POST" && (sub === "activate" || sub === "pause")) {
+      return apiJson(await ctx.runMutation(internal.odin.apiSetStoreStatus, { ownerId, storeId: id, status: sub === "activate" ? "active" : "paused" }));
     }
     if (a === "sales") {
       if (request.method === "GET" && !id) {
