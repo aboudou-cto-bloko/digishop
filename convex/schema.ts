@@ -34,6 +34,10 @@ export default defineSchema({
     tagline: v.optional(v.string()),
     description: v.string(),
     coverId: v.optional(v.id("_storage")),
+    // Galerie de la page de vente (images et GIF animés), affichée sous l'image principale
+    gallery: v.optional(v.array(v.object({ storageId: v.id("_storage"), mime: v.string(), width: v.optional(v.number()), height: v.optional(v.number()) }))),
+    // Créé par OdiN via l'API (sert au suivi, aucun effet sur la vitrine)
+    source: v.optional(v.string()),
     price: v.number(), // XOF, entier
     compareAtPrice: v.optional(v.number()),
     status: v.union(v.literal("draft"), v.literal("published")),
@@ -113,6 +117,8 @@ export default defineSchema({
     customerName: v.string(),
     customerEmail: v.string(),
     customerPhone: v.optional(v.string()),
+    // Remboursement : l'argent est rendu par le vendeur (Mobile Money), l'accès est coupé
+    refund: v.optional(v.object({ at: v.number(), amount: v.number(), reason: v.optional(v.string()), by: v.optional(v.string()) })),
     price: v.number(),
     discount: v.number(),
     net: v.number(),
@@ -318,6 +324,8 @@ export default defineSchema({
     fbPixelId: v.optional(v.string()),
     fbAccessToken: v.optional(v.string()),
     fbTestEventCode: v.optional(v.string()),
+    // Pixels Facebook supplémentaires (un par compte pub, ex. chaque membre de l'équipe OdiN)
+    extraPixels: v.optional(v.array(v.object({ pixelId: v.string(), accessToken: v.optional(v.string()), label: v.optional(v.string()) }))),
     tiktokPixelId: v.optional(v.string()),
     seoTitle: v.optional(v.string()),
     seoDescription: v.optional(v.string()),
@@ -407,6 +415,32 @@ export default defineSchema({
     phone: v.optional(v.string()),
     lastHeartbeatAt: v.optional(v.number()),
   }).index("by_key", ["key"]),
+
+  // Clés d'API (OdiN) : seul le hachage SHA-256 est gardé, la clé n'est montrée qu'une fois
+  apiKeys: defineTable({
+    ownerId: v.id("users"),
+    label: v.string(),
+    hash: v.string(),
+    prefix: v.string(), // début de la clé, pour la reconnaître dans la liste
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_hash", ["hash"])
+    .index("by_owner", ["ownerId"]),
+
+  // Webhooks sortants signés (HMAC-SHA256) : ventes réglées, échouées, abandonnées, remboursées
+  webhooks: defineTable({
+    ownerId: v.id("users"),
+    url: v.string(),
+    secret: v.string(),
+    events: v.array(v.string()),
+    active: v.boolean(),
+    createdAt: v.number(),
+    lastAt: v.optional(v.number()),
+    lastStatus: v.optional(v.string()),
+    failures: v.optional(v.number()),
+  }).index("by_owner", ["ownerId"]),
 
   payouts: defineTable({
     storeId: v.id("stores"),

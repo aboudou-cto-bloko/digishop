@@ -22,6 +22,7 @@ import { PublishBadge } from "@/components/admin/ui";
 import { RichEditor } from "@/components/shared/rich-editor";
 import { SeoPanel } from "@/components/admin/seo-panel";
 import { htmlToText } from "@/lib/rich-html";
+import { GalleryEditor } from "@/components/admin/gallery-editor";
 import { ConversionEditor, conversionPayload, initialConversion, type ConversionState } from "@/components/admin/product-conversion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage, fcfa, fileSize } from "@/lib/format";
@@ -58,7 +59,7 @@ export default function ProductEditorPage({ params }: { params: Promise<{ id: st
   return <Editor key={product._id} product={product} />;
 }
 
-function Editor({ product }: { product: Doc<"products"> & { coverUrl: string | null; photoUrls: Record<string, string | null> } }) {
+function Editor({ product }: { product: Doc<"products"> & { coverUrl: string | null; photoUrls: Record<string, string | null>; galleryUrls: Record<string, string | null> } }) {
   const { store } = useCurrentStore();
   const update = useStoreMutation(api.products.update);
   const setStatus = useStoreMutation(api.products.setStatus);
@@ -148,8 +149,8 @@ function Editor({ product }: { product: Doc<"products"> & { coverUrl: string | n
 
   const onCover = async (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) return toast.error("Choisis une image (JPG, PNG, WebP).");
-    if (file.size > 8 * 1024 ** 2) return toast.error("Image trop lourde (8 Mo maximum).");
+    if (!file.type.startsWith("image/")) return toast.error("Choisis une image (JPG, PNG, WebP ou GIF).");
+    if (file.size > (file.type === "image/gif" ? 15 : 8) * 1024 ** 2) return toast.error(file.type === "image/gif" ? "GIF trop lourd (15 Mo maximum)." : "Image trop lourde (8 Mo maximum).");
     setCoverBusy(true);
     try {
       const storageId = await uploadToConvex(await genUrl(), file);
@@ -358,7 +359,7 @@ function Editor({ product }: { product: Doc<"products"> & { coverUrl: string | n
                 <span className="flex size-full flex-col items-center justify-center gap-2 text-muted-foreground">
                   <ImagePlus className="size-8 stroke-[1.4]" />
                   <span className="text-sm font-medium">Ajouter une image</span>
-                  <span className="px-4 text-center text-xs">Portrait 4:5 · 1200 × 1500 px conseillé (min. 800 × 1000), JPG/PNG/WebP</span>
+                  <span className="px-4 text-center text-xs">Portrait 4:5 · 1200 × 1500 px conseillé (min. 800 × 1000), JPG/PNG/WebP ou GIF animé</span>
                 </span>
               )}
               {product.coverUrl && (
@@ -373,6 +374,10 @@ function Editor({ product }: { product: Doc<"products"> & { coverUrl: string | n
               )}
               <input type="file" accept="image/*" className="sr-only" onChange={(e) => onCover(e.target.files?.[0])} />
             </label>
+          </Card>
+
+          <Card title="Galerie (images et GIF)">
+            <GalleryEditor productId={product._id} gallery={product.gallery ?? []} urls={product.galleryUrls} />
           </Card>
 
           <Card title="Publication">

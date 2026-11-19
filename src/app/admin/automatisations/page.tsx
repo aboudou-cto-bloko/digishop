@@ -1,7 +1,7 @@
 "use client";
 
 import type { FunctionReturnType } from "convex/server";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useRef, useState } from "react";
 import { Check, Eye, Loader2, Mail, Plus, Trash2, Zap } from "lucide-react";
 import { toast } from "sonner";
@@ -446,7 +446,7 @@ const STATUS_LABEL: Record<string, string> = { failed: "Paiement échoué", aban
 /** Envoi manuel d'emails (modèles) aux clients dont le paiement n'a pas abouti. */
 function EmailQueue() {
   const rows = useStoreQuery(api.recovery.failedQueue, {});
-  const templates = useStoreQuery(api.recovery.manualTemplates, {});
+  const templates = useQuery(api.recovery.manualTemplates, {});
   const sendBulk = useStoreMutation(api.recovery.sendBulk);
   const waBulk = useStoreMutation(api.whatsapp.enqueueBulk);
   const waStatus = useStoreQuery(api.whatsapp.status, {});

@@ -1,0 +1,75 @@
+name: Tests liaison OdiN
+
+# Lance une base Convex auto-hébergée (comme sur le VPS), y installe Chairow,
+# puis teste l'API OdiN, les fichiers et GIF, la publication, une vente et les webhooks signés.
+on:
+  push:
+    branches: [feat/odin, main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CONVEX_SELF_HOSTED_URL: http://127.0.0.1:3210
+      SITE: http://127.0.0.1:3211
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Base Convex auto-hébergée
+        run: |
+          docker run -d --name convex --network host \
+            -e CONVEX_CLOUD_ORIGIN=http://127.0.0.1:3210 \
+            -e CONVEX_SITE_ORIGIN=http://127.0.0.1:3211 \
+            ghcr.io/convex/convex-backend:latest
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:3210/version && break; sleep 2; done
+          echo "CONVEX_SELF_HOSTED_ADMIN_KEY=$(docker exec convex ./generate_admin_key.sh | tail -n 1)" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - name: Clés de test de la base (générées pour ce test, jetées ensuite)
+        run: |
+          node -e '
+            const { generateKeyPairSync, randomBytes } = require("node:crypto");
+            const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+            const pem = privateKey.export({ type: "pkcs8", format: "pem" }).trimEnd().replace(/\n/g, " ");
+            const jwk = publicKey.export({ format: "jwk" });
+            require("node:fs").writeFileSync("/tmp/jwt.pem", pem);
+            require("node:fs").writeFileSync("/tmp/jwks.json", JSON.stringify({ keys: [{ use: "sig", ...jwk }] }));
+            require("node:fs").writeFileSync("/tmp/secret", randomBytes(24).toString("hex"));
+          '
+          npx convex env set JWT_PRIVATE_KEY -- "$(cat /tmp/jwt.pem)"
+          npx convex env set JWKS -- "$(cat /tmp/jwks.json)"
+          npx convex env set SITE_URL http://127.0.0.1:3000
+          npx convex env set TRACKING_SECRET "$(cat /tmp/secret)"
+          npx convex env set ADMIN_EMAIL test@example.com
+
+      - name: Installation des fonctions Chairow (contrôle des types Convex compris)
+        run: npx convex deploy -y
+
+      - name: Contrôle des types du site
+        run: npx tsc --noEmit
+
+      - name: Tests de la liaison OdiN
+        run: node tests/odin-e2e.mjs
+
+      - name: Compilation du site
+        env:
+          NEXT_PUBLIC_CONVEX_URL: http://127.0.0.1:3210
+          NEXT_PUBLIC_CONVEX_SITE_URL: http://127.0.0.1:3211
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+        run: npm run build
+
+      - name: Lint (informatif)
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Journal de la base en cas d'échec
+        if: failure()
+        run: docker logs convex 2>&1 | tail -n 150

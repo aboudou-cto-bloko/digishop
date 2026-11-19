@@ -7,7 +7,9 @@ import { useEffect, useRef } from "react";
 type Fbq = (...args: unknown[]) => void;
 
 /** Facebook Pixel + TikTok Pixel. PageView à chaque navigation (y compris côté client). */
-export function Pixels({ fbPixelId, tiktokPixelId }: { fbPixelId?: string; tiktokPixelId?: string }) {
+export function Pixels({ fbPixelIds, tiktokPixelId }: { fbPixelIds?: string[]; tiktokPixelId?: string }) {
+  const ids = (fbPixelIds ?? []).map((id) => id.replace(/\D/g, "")).filter(Boolean);
+  const fbPixelId = ids[0];
   const pathname = usePathname();
   const first = useRef(true);
 
@@ -30,7 +32,7 @@ n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
 n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
 t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
 document,'script','https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', '${fbPixelId.replace(/\D/g, "")}');
+${ids.map((id) => `fbq('init', '${id}');`).join(" ")}
 fbq('track', 'PageView');`}</Script>
           <noscript>
             {/* eslint-disable-next-line @next/next/no-img-element */}

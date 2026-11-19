@@ -114,6 +114,13 @@ export function SaleDetail({ id }: { id: Id<"sales"> }) {
         </div>
       </div>
 
+      {sale.refund && (
+        <div className="rounded-2xl bg-[var(--danger-bg)] p-4 text-sm text-[var(--danger-fg)]">
+          <strong>Remboursée</strong> le {fmtDateTime(sale.refund.at)} : {sale.refund.amount.toLocaleString("fr-FR")} F CFA
+          {sale.refund.reason ? ` · ${sale.refund.reason}` : ""}. Retirée des revenus, accès coupé.
+        </div>
+      )}
+
       {sale.status === "paid" && (
         <div className="flex flex-wrap gap-2">
           {sale.accessRevoked ? (

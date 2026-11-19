@@ -15,6 +15,7 @@ import { convertFromXof } from "./lib/fx";
 import { attributeRecovery } from "./recovery";
 import { pushSaleLost, pushSalePaid } from "./push";
 import { trackPurchase } from "./tracking";
+import { emitSaleEvent } from "./odin";
 
 function randomKey(): string {
   const bytes = new Uint8Array(24);
@@ -250,6 +251,7 @@ export async function applyPaid(
   await ctx.scheduler.runAfter(0, internal.email.send.queue, { saleId: sale._id, template: "purchase" });
   await ctx.scheduler.runAfter(0, internal.email.send.queue, { saleId: sale._id, template: "seller_sale" });
   await ctx.scheduler.runAfter(0, internal.meta.capi.trackPurchase, { saleId: sale._id });
+  await emitSaleEvent(ctx, sale._id, "sale.paid");
   return true;
 }
 
@@ -297,7 +299,10 @@ export const markFailed = internalMutation({
     const currentId = currentProviderPaymentId(sale);
     if (paymentId && currentId && paymentId !== currentId) return;
     await ctx.db.patch(saleId, { status: "failed", failureReason: reason, method: method ?? sale.method });
-    if (sale.status !== "failed") await pushSaleLost(ctx, sale, "failed");
+    if (sale.status !== "failed") {
+      await pushSaleLost(ctx, sale, "failed");
+      await emitSaleEvent(ctx, saleId, "sale.failed");
+    }
   },
 });
 
@@ -320,6 +325,7 @@ export const abandonStale = internalMutation({
       } else {
         await ctx.db.patch(s._id, { status: "abandoned" });
         await pushSaleLost(ctx, s, "abandoned");
+        await emitSaleEvent(ctx, s._id, "sale.abandoned");
       }
     }
   },
@@ -332,6 +338,7 @@ export const markAbandonedIfPending = internalMutation({
     if (s?.status !== "pending") return;
     await ctx.db.patch(saleId, { status: "abandoned" });
     await pushSaleLost(ctx, s, "abandoned");
+    await emitSaleEvent(ctx, saleId, "sale.abandoned");
   },
 });
 

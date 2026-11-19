@@ -1,8 +1,8 @@
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v, ConvexError } from "convex/values";
+import { v, ConvexError, type ObjectType } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ownedBy, requireStore } from "./lib/auth";
 import { slugify } from "./lib/utils";
 import { DEFAULT_PREVIEW_PAGES, MAX_PREVIEW_PAGES, previewCount } from "./lib/preview";
@@ -50,6 +50,14 @@ async function publicShape(ctx: QueryCtx, p: Doc<"products"> & { coverUrl: strin
     tagline: p.tagline,
     description: p.description,
     coverUrl: p.coverUrl,
+    gallery: (
+      await Promise.all(
+        (p.gallery ?? []).map(async (g) => {
+          const url = await ctx.storage.getUrl(g.storageId);
+          return url ? { url, mime: g.mime, width: g.width ?? null, height: g.height ?? null } : null;
+        }),
+      )
+    ).filter((g): g is { url: string; mime: string; width: number | null; height: number | null } => g !== null),
     price: p.price,
     compareAtPrice: p.compareAtPrice,
     promo: p.promo ?? null,
@@ -145,7 +153,9 @@ export const adminGet = query({
     if (!p || p.storeId !== storeId) return null;
     const photos: Record<string, string | null> = {};
     for (const t of p.testimonials ?? []) if (t.photoId) photos[t.photoId] = await ctx.storage.getUrl(t.photoId);
-    return { ...(await withCover(ctx, p)), photoUrls: photos };
+    const galleryUrls: Record<string, string | null> = {};
+    for (const g of p.gallery ?? []) galleryUrls[g.storageId] = await ctx.storage.getUrl(g.storageId);
+    return { ...(await withCover(ctx, p)), photoUrls: photos, galleryUrls };
   },
 });
 
@@ -182,15 +192,16 @@ export const create = mutation({
   },
 });
 
-export const update = mutation({
-  args: {
-    storeId: v.id("stores"),
-    id: v.id("products"),
+const galleryItemV = v.object({ storageId: v.id("_storage"), mime: v.string(), width: v.optional(v.number()), height: v.optional(v.number()) });
+const GALLERY_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+export const productUpdateFields = {
     title: v.optional(v.string()),
     slug: v.optional(v.string()),
     tagline: v.optional(v.string()),
     description: v.optional(v.string()),
     coverId: v.optional(v.union(v.id("_storage"), v.null())),
+    gallery: v.optional(v.array(galleryItemV)),
     price: v.optional(v.number()),
     compareAtPrice: v.optional(v.union(v.number(), v.null())),
     files: v.optional(v.array(fileV)),
@@ -206,9 +217,20 @@ export const update = mutation({
     previewPages: v.optional(v.number()),
     stockLimit: v.optional(v.union(v.number(), v.null())),
     cta: v.optional(v.string()),
-  },
+};
+export type ProductUpdateArgs = ObjectType<typeof productUpdateFields>;
+
+export const update = mutation({
+  args: { storeId: v.id("stores"), id: v.id("products"), ...productUpdateFields },
   handler: async (ctx, { storeId, id, ...args }) => {
     await requireStore(ctx, storeId);
+    await applyProductUpdate(ctx, storeId, id, args);
+  },
+});
+
+/** Mise à jour d'une fiche produit (dashboard et API OdiN). L'appelant a déjà vérifié le propriétaire. */
+export async function applyProductUpdate(ctx: MutationCtx, storeId: Id<"stores">, id: Id<"products">, args: ProductUpdateArgs) {
+  {
     const p = ownedBy(await ctx.db.get(id), storeId, "Produit");
 
     if (args.price !== undefined && (!Number.isInteger(args.price) || args.price < 0)) {
@@ -300,9 +322,21 @@ export const update = mutation({
     if (args.seoDescription !== undefined) patch.seoDescription = args.seoDescription.trim().slice(0, 170) || undefined;
     if (args.countries !== undefined) patch.countries = [...new Set(args.countries.map((c) => c.toUpperCase()))].filter((c) => /^[A-Z]{2}$/.test(c));
 
+    if (args.gallery !== undefined) {
+      const items = args.gallery.slice(0, 12).map((g) => ({ storageId: g.storageId, mime: g.mime, ...(g.width ? { width: Math.round(g.width) } : {}), ...(g.height ? { height: Math.round(g.height) } : {}) }));
+      for (const g of items) {
+        const meta = await ctx.db.system.get(g.storageId);
+        if (!meta || !meta.contentType || !GALLERY_MIMES.includes(meta.contentType)) throw new ConvexError("Galerie : JPG, PNG, WebP ou GIF uniquement.");
+        if (meta.size > 15 * 1024 * 1024) throw new ConvexError("Galerie : 15 Mo maximum par image.");
+      }
+      const kept = new Set(items.map((g) => g.storageId));
+      for (const g of p.gallery ?? []) if (!kept.has(g.storageId)) await ctx.storage.delete(g.storageId);
+      patch.gallery = items;
+    }
+
     await ctx.db.patch(id, patch);
-  },
-});
+  }
+}
 
 export const setStatus = mutation({
   args: { storeId: v.id("stores"), id: v.id("products"), status: v.union(v.literal("draft"), v.literal("published")) },
@@ -359,6 +393,7 @@ export const remove = mutation({
       );
     }
     if (p.coverId) await ctx.storage.delete(p.coverId);
+    for (const g of p.gallery ?? []) await ctx.storage.delete(g.storageId);
     for (const f of p.files) {
       await ctx.storage.delete(f.storageId);
       if (f.previewId) await ctx.storage.delete(f.previewId);

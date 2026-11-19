@@ -208,6 +208,25 @@ export function ProductView({
           </aside>
 
           <div className="space-y-6 lg:col-start-1 lg:row-start-1 lg:pt-8">
+            {(p.gallery?.length ?? 0) > 0 && (
+              <section aria-label="Images du produit" className="border-t border-border pt-6 sm:rounded-[28px] sm:border-0 sm:bg-card sm:p-6">
+                <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-visible sm:px-0">
+                  {(p.gallery ?? []).map((g, i) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={g.url}
+                      src={g.url}
+                      alt={`${p.title}, image ${i + 2}`}
+                      width={g.width ?? undefined}
+                      height={g.height ?? undefined}
+                      loading="lazy"
+                      decoding="async"
+                      className="w-[82%] shrink-0 snap-center rounded-2xl bg-surface object-contain sm:w-full"
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
             {descriptionHtml && (
               <section className="border-t border-border pt-6 sm:rounded-[28px] sm:border-0 sm:bg-card sm:p-8">
                 <div className="rich" dangerouslySetInnerHTML={{ __html: descriptionHtml }} />

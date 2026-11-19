@@ -113,7 +113,7 @@ function days(from: number, to: number): string[] {
 }
 
 function summarize(sales: Doc<"sales">[]) {
-  const paid = sales.filter((s) => s.status === "paid");
+  const paid = sales.filter((s) => s.status === "paid" && !s.refund);
   const revenue = paid.reduce((a, s) => a + s.net, 0);
   const failed = sales.filter((s) => s.status === "failed");
   const abandoned = sales.filter((s) => s.status === "abandoned");
@@ -191,7 +191,7 @@ export const overview = query({
     const pageviews = views.reduce((a, x) => a + x.count, 0);
     const checkoutVisitors = new Set(starts.map((x) => x.visitorId)).size;
 
-    const paid = sales.filter((s) => s.status === "paid");
+    const paid = sales.filter((s) => s.status === "paid" && !s.refund);
 
     // Série journalière
     const byDay = new Map(dayList.map((d) => [d, { day: d, revenue: 0, sales: 0, visitors: new Set<string>() }]));
@@ -310,7 +310,8 @@ export const home = query({
     const paid = await ctx.db
       .query("sales")
       .withIndex("by_store_status", (q) => q.eq("storeId", storeId).eq("status", "paid"))
-      .collect();
+      .collect()
+      .then((rows) => rows.filter((x) => !x.refund));
     const weekAgo = Date.now() - 7 * 86_400_000;
     const twoWeeksAgo = Date.now() - 14 * 86_400_000;
     const lastWeek = paid.filter((s) => (s.paidAt ?? s._creationTime) >= weekAgo);
@@ -379,7 +380,8 @@ export const revenue = query({
     const paid = await ctx.db
       .query("sales")
       .withIndex("by_store_status", (q) => q.eq("storeId", storeId).eq("status", "paid"))
-      .collect();
+      .collect()
+      .then((rows) => rows.filter((x) => !x.refund));
     const gross = paid.reduce((a, s) => a + s.net, 0);
     const fees = paid.reduce((a, s) => a + (s.fees ?? 0), 0);
     const months = new Map<string, { month: string; sales: number; gross: number; fees: number }>();
