@@ -10,7 +10,7 @@ import { requireStore } from "./lib/auth";
 import { ensureSettings, loadSettings } from "./settings";
 import { MONEROO_API_URL, buildAuthHeaders, describeFetchError, fetchWithTimeout, readJson, str } from "./payments/moneroo_client";
 import {
-  SASPAY_API_URL,
+  saspayApiUrl,
   buildAuthHeaders as cmAuthHeaders,
   describeFetchError as cmDescribeFetchError,
   fetchWithTimeout as cmFetch,
@@ -315,11 +315,11 @@ type PayoutItem = { destinationId: string; amount: number; currency: string };
 type SendResult = { ok: true; id: Id<"payouts"> } | { ok: false; error: string };
 
 /** Décaissement zone CEMAC. Même contrat que sendMonerooPayout. */
-async function sendCameroonPayout(ctx: ActionCtx, id: Id<"payouts">, key: string): Promise<SendResult> {
+async function sendCameroonPayout(ctx: ActionCtx, id: Id<"payouts">, storeId: Id<"stores">, adminEmail: string, key: string): Promise<SendResult> {
   const payout = (await ctx.runQuery(internal.payouts.get, { id }))!;
   let res: Response;
   try {
-    res = await cmFetch(`${SASPAY_API_URL}/payouts/initialize/`, {
+    res = await cmFetch(`${saspayApiUrl()}/payouts/initialize/`, {
       method: "POST",
       headers: { ...cmAuthHeaders(key), "Idempotency-Key": id },
       body: JSON.stringify({
@@ -327,9 +327,10 @@ async function sendCameroonPayout(ctx: ActionCtx, id: Id<"payouts">, key: string
         currency: payout.currency ?? "XAF",
         country: payout.country ?? "CM",
         method: payout.method,
-        customer: { phone: `+${payout.msisdn}` },
+        customer: { email: adminEmail, first_name: "Retrait", last_name: "Boutique", phone: `+${payout.msisdn}` },
         recipient: { msisdn: payout.msisdn },
         description: `Retrait boutique vers ${payout.label}`,
+        metadata: { payout_id: id, store_id: storeId },
       }),
     });
   } catch (err) {
@@ -340,9 +341,17 @@ async function sendCameroonPayout(ctx: ActionCtx, id: Id<"payouts">, key: string
   // L'id renvoyé à la création EST déjà l'id de transaction (contrairement au paiement entrant, connu plus tard).
   const txId = cmStr(body, ["id"]) ?? cmStr(body, ["data", "id"]);
   if (!res.ok || !txId) {
+    const code = cmStr(body, ["code"]) ?? cmStr(body, ["error", "code"]) ?? "";
     const reason = cmStr(body, ["message"]) ?? cmStr(body, ["error", "message"]) ?? `HTTP ${res.status}`;
-    await ctx.runMutation(internal.payouts.patch, { id, status: "failed", failureReason: reason });
-    return { ok: false, error: `Retrait refusé : ${reason}` };
+    await ctx.runMutation(internal.payouts.patch, { id, status: "failed", failureReason: code ? `${code} : ${reason}` : reason });
+    const hint: Record<string, string> = {
+      ip_not_whitelisted: "SasPay n'autorise pas encore les retraits depuis le serveur de la boutique (liste d'adresses IP). Aucun argent n'a été envoyé.",
+      payout_not_enabled: "Les retraits ne sont pas activés sur le compte SasPay. Aucun argent n'a été envoyé.",
+      currency_country_mismatch: "La devise ne correspond pas au pays du numéro. Aucun argent n'a été envoyé.",
+      wallet_frozen: "Le solde SasPay est bloqué : contacte SasPay. Aucun argent n'a été envoyé.",
+    };
+    const scope = res.status === 403 && !code ? "La clé SasPay n'a pas le droit de faire des retraits (droit PAYOUT ou BOTH requis). " : "";
+    return { ok: false, error: hint[code] ?? `${scope}Retrait refusé : ${reason}` };
   }
   await ctx.runMutation(internal.payouts.patch, { id, status: "pending", saspayPayoutId: txId });
   for (const delay of [60_000, 5 * 60_000, 30 * 60_000]) await ctx.scheduler.runAfter(delay, internal.payouts.verify, { id });
@@ -409,7 +418,7 @@ async function sendPayout(ctx: ActionCtx, storeId: Id<"stores">, item: PayoutIte
     return { ok: false, error: e instanceof ConvexError ? String(e.data) : "Retrait impossible." };
   }
   const payout = (await ctx.runQuery(internal.payouts.get, { id }))!;
-  return isSaspayMethod(payout.method) ? sendCameroonPayout(ctx, id, cameroonKey()) : sendMonerooPayout(ctx, id, storeId, adminEmail, monerooKey());
+  return isSaspayMethod(payout.method) ? sendCameroonPayout(ctx, id, storeId, adminEmail, cameroonKey()) : sendMonerooPayout(ctx, id, storeId, adminEmail, monerooKey());
 }
 
 export const request = action({
@@ -467,7 +476,7 @@ async function verifyCameroonPayout(ctx: ActionCtx, id: Id<"payouts">, txId: str
   const key = process.env.SASPAY_SECRET_KEY;
   if (!key) return;
   try {
-    const res = await cmFetch(`${SASPAY_API_URL}/payouts/${txId}/verify/`, { method: "GET", headers: cmAuthHeaders(key) });
+    const res = await cmFetch(`${saspayApiUrl()}/payouts/${txId}/verify/`, { method: "GET", headers: cmAuthHeaders(key) });
     const body = await cmReadJson(res);
     const status = cmStr(body, ["status"]) ?? cmStr(body, ["data", "status"]);
     if (status === "SUCCESS") await ctx.runMutation(internal.payouts.patch, { id, status: "success" });

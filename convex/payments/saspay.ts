@@ -3,7 +3,7 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { SASPAY_API_URL, buildAuthHeaders, describeFetchError, fetchWithTimeout, str, readJson } from "./saspay_client";
+import { saspayApiUrl, buildAuthHeaders, describeFetchError, fetchWithTimeout, str, readJson } from "./saspay_client";
 import { thankYouUrl } from "./shared";
 export { thankYouUrl } from "./shared";
 
@@ -43,7 +43,7 @@ export async function tryInitialize(ctx: ActionCtx, sale: InitSale, customer: { 
   };
   let res: Response;
   try {
-    res = await fetchWithTimeout(`${SASPAY_API_URL}/checkout-sessions/`, { method: "POST", headers: buildAuthHeaders(key), body: JSON.stringify(payload) });
+    res = await fetchWithTimeout(`${saspayApiUrl()}/checkout-sessions/`, { method: "POST", headers: buildAuthHeaders(key), body: JSON.stringify(payload) });
   } catch (err) {
     return { ok: false, reason: describeFetchError(err, "initialisation"), notEnabled: false };
   }
@@ -74,7 +74,7 @@ async function verifyAndApply(
 
   let res: Response;
   try {
-    res = await fetchWithTimeout(`${SASPAY_API_URL}/checkout-sessions/${sale.saspaySessionId}/status/`, {
+    res = await fetchWithTimeout(`${saspayApiUrl()}/checkout-sessions/${sale.saspaySessionId}/status/`, {
       method: "GET",
       headers: buildAuthHeaders(secret()),
     });

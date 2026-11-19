@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { requireAdmin } from "./lib/auth";
-import { SASPAY_API_URL, buildAuthHeaders, fetchWithTimeout, readJson } from "./payments/saspay_client";
+import { saspayApiUrl, buildAuthHeaders, fetchWithTimeout, readJson } from "./payments/saspay_client";
 
 /**
  * Routage des paiements : pour un pays (et un moyen de paiement choisi par l'acheteur), quel prestataire utiliser ?
@@ -66,7 +66,7 @@ export const syncSaspay = internalAction({
     if (!key) return "SasPay non configuré";
     try {
       const get = async (path: string) => {
-        const res = await fetchWithTimeout(`${SASPAY_API_URL}/${path}`, { method: "GET", headers: buildAuthHeaders(key) });
+        const res = await fetchWithTimeout(`${saspayApiUrl()}/${path}`, { method: "GET", headers: buildAuthHeaders(key) });
         if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
         return await readJson(res);
       };

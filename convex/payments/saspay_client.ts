@@ -1,6 +1,12 @@
 // Utilitaires HTTP pour le prestataire d'encaissement/décaissement Cameroun — repris de moneroo_client.ts
 
-export const SASPAY_API_URL = "https://api.saspay.me/api/v1";
+export const SASPAY_LIVE_URL = "https://api.saspay.me/api/v1";
+export const SASPAY_SANDBOX_URL = "https://sandbox-api.saspay.me/api/v1";
+
+/** Une clé de test (sk_test_…) parle au bac à sable : aucune vraie transaction. */
+export function saspayApiUrl(key = process.env.SASPAY_SECRET_KEY): string {
+  return key?.startsWith("sk_test_") ? SASPAY_SANDBOX_URL : SASPAY_LIVE_URL;
+}
 export const SASPAY_TIMEOUT_MS = 10_000;
 
 export function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
