@@ -35,6 +35,8 @@ import type * as lib_validators from "../lib/validators.js";
 import type * as media from "../media.js";
 import type * as meta_capi from "../meta/capi.js";
 import type * as migrations from "../migrations.js";
+import type * as odin from "../odin.js";
+import type * as odinApiUpdate from "../odinApiUpdate.js";
 import type * as pages from "../pages.js";
 import type * as payments_lookup from "../payments/lookup.js";
 import type * as payments_moneroo from "../payments/moneroo.js";
@@ -92,6 +94,8 @@ declare const fullApi: ApiFromModules<{
   media: typeof media;
   "meta/capi": typeof meta_capi;
   migrations: typeof migrations;
+  odin: typeof odin;
+  odinApiUpdate: typeof odinApiUpdate;
   pages: typeof pages;
   "payments/lookup": typeof payments_lookup;
   "payments/moneroo": typeof payments_moneroo;
